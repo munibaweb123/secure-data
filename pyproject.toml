@@ -6,5 +6,5 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "streamlit>=1.44.1",
-    "cryptography==3.4.8",
+    "cryptography==44.0.2",
 ]
