@@ -1,0 +1,14 @@
+{
+    "knowledge": {
+        "password": "578d0919146f906a7bcb0b0c368a07ba26c541f7167e8e1d88e85dd15bc27a9c",
+        "salt": "7eddf05f6b218fa1fdddcb68350bcee6"
+    },
+    "muni": {
+        "password": "9abe2c5a888f0e4111b312bae5e68c6631e9f98dbccc5a1d59e8162e19c5ccdc",
+        "salt": "b66d118bb3902dcd3f1165619a619c50"
+    },
+    "muni.com": {
+        "password": "0c203727e8f944d8e04c6249f927cd6d2fe058f1882eba89ede9b1a8f2af58fd",
+        "salt": "c0c265edf19b392432960148c9764810"
+    }
+}
