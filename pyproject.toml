@@ -1,11 +1,12 @@
-
 [project]
 name = "secure-data"
 version = "0.1.0"
-description = "Add your description here"
+description = "Secure data app"
 readme = "README.md"
 requires-python = ">=3.9, <3.11"
+
 dependencies = [
-    "streamlit>=1.44.1",
+    "streamlit==1.44.1",
     "cryptography==44.0.2",
-]  
+    "jsonschema<4.18"
+]
