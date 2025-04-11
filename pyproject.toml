@@ -3,7 +3,7 @@ name = "secure-data"
 version = "0.1.0"
 description = "A Streamlit app to secure data"
 readme = "README.md"
-requires-python = ">=3.9,<3.11"
+requires-python = ">=3.9, <3.11"
 
 dependencies = [
     "streamlit>=1.44.1",
