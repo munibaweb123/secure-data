@@ -1,32 +1,52 @@
 import streamlit as st
 import hashlib
-import json
 import time
 import os
 import base64
+import sqlite3
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
 
 # --- Configuration ---
-DATA_FILE = "data.json"
-USERS_FILE = "users.json"
+DB_FILE = "secure_data.db"
 FAILED_ATTEMPTS_LIMIT = 3
 LOCKOUT_TIME = 60
 SALT_LENGTH = 16
 
+# --- SQLite Helper Functions ---
+def get_db_connection():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            email TEXT PRIMARY KEY,
+            password TEXT NOT NULL,
+            salt TEXT NOT NULL
+        )
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS secure_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_email TEXT,
+            data_id TEXT,
+            encrypted_text TEXT,
+            passkey TEXT,
+            FOREIGN KEY(user_email) REFERENCES users(email)
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
 # --- Helper Functions ---
-def load_data(filename):
-    if os.path.exists(filename):
-        with open(filename, "r") as f:
-            return json.load(f)
-    return {}
-
-def save_data(filename, data):
-    with open(filename, "w") as f:
-        json.dump(data, f, indent=4)
-
 def hash_passkey(passkey, salt=None):
     if salt is None:
         return hashlib.sha256(passkey.encode()).hexdigest()
@@ -65,6 +85,32 @@ def decrypt_data(encrypted_text, passkey, salt):
     except:
         return None
 
+def get_user(email):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM users WHERE email = ?", (email,))
+    user = cur.fetchone()
+    conn.close()
+    return user
+
+def register_user(email, password, salt):
+    hashed_password = hash_passkey(password, salt)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO users (email, password, salt) VALUES (?, ?, ?)", (email, hashed_password, salt))
+    conn.commit()
+    conn.close()
+
+def store_data(user_email, data_id, encrypted_text, hashed_passkey):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('''
+        INSERT INTO secure_data (user_email, data_id, encrypted_text, passkey)
+        VALUES (?, ?, ?, ?)
+    ''', (user_email, data_id, encrypted_text, hashed_passkey))
+    conn.commit()
+    conn.close()
+
 def is_locked_out(user_email):
     if user_email in st.session_state['failed_attempts'] and st.session_state['failed_attempts'][user_email]['count'] >= FAILED_ATTEMPTS_LIMIT:
         if time.time() < st.session_state['failed_attempts'][user_email]['lockout_end']:
@@ -83,30 +129,26 @@ if 'user_email' not in st.session_state:
 if 'failed_attempts' not in st.session_state:
     st.session_state['failed_attempts'] = {}
 
-users = load_data(USERS_FILE)
-stored_data = load_data(DATA_FILE)
-
 # --- Streamlit UI ---
-st.title("🔒 Secure Data Encryption System")
+st.title("\U0001F512 Secure Data Encryption System")
 
-# Navigation
 menu = ["Home", "Login", "Register", "Store Data", "Retrieve Data"]
 choice = st.sidebar.selectbox("Navigation", menu)
 
-# Page content
 if choice == "Home":
-    st.subheader("🏠 Welcome to the Secure Data System")
+    st.subheader("\U0001F3E0 Welcome to the Secure Data System")
     st.write("Use this app to securely store and retrieve data using unique passkeys.")
 
 elif choice == "Login":
     if not st.session_state['logged_in']:
-        st.subheader("🔑 User Login")
+        st.subheader("\U0001F511 User Login")
         login_email = st.text_input("Email")
         login_password = st.text_input("Password", type="password")
         if st.button("Submit Login"):
+            user = get_user(login_email)
             if is_locked_out(login_email):
-                st.error(f"🔒 Too many failed attempts. Try again in {int(st.session_state['failed_attempts'][login_email]['lockout_end'] - time.time())} seconds.")
-            elif login_email in users and users[login_email]["password"] == hash_passkey(login_password, users[login_email]["salt"]):
+                st.error(f"\U0001F512 Too many failed attempts. Try again in {int(st.session_state['failed_attempts'][login_email]['lockout_end'] - time.time())} seconds.")
+            elif user and user["password"] == hash_passkey(login_password, user["salt"]):
                 st.session_state['logged_in'] = True
                 st.session_state['user_email'] = login_email
                 reset_failed_attempts(login_email)
@@ -118,16 +160,16 @@ elif choice == "Login":
                 st.session_state['failed_attempts'][login_email]['count'] += 1
                 if st.session_state['failed_attempts'][login_email]['count'] >= FAILED_ATTEMPTS_LIMIT:
                     st.session_state['failed_attempts'][login_email]['lockout_end'] = time.time() + LOCKOUT_TIME
-                    st.warning(f"🔒 Too many failed attempts. User {login_email} is locked out for {LOCKOUT_TIME} seconds.")
+                    st.warning(f"\U0001F512 Too many failed attempts. User {login_email} is locked out for {LOCKOUT_TIME} seconds.")
                 else:
                     st.warning(f"❌ Incorrect credentials. Attempts: {st.session_state['failed_attempts'][login_email]['count']}/{FAILED_ATTEMPTS_LIMIT}")
     else:
-        st.subheader("👋 Welcome!")
+        st.subheader("\U0001F44B Welcome!")
         st.write(f"Logged in as: {st.session_state['user_email']}")
         if st.button("Logout"):
             st.session_state['logged_in'] = False
             st.session_state['user_email'] = None
-            st.success("🚪 Logged out")
+            st.success("\U0001F6AA Logged out")
 
 elif choice == "Register":
     if not st.session_state['logged_in']:
@@ -136,11 +178,9 @@ elif choice == "Register":
         new_password = st.text_input("New Password", type="password")
         if st.button("Register"):
             if new_email and new_password:
-                if new_email not in users:
+                if not get_user(new_email):
                     salt = os.urandom(SALT_LENGTH).hex()
-                    hashed_password = hash_passkey(new_password, salt)
-                    users[new_email] = {"password": hashed_password, "salt": salt}
-                    save_data(USERS_FILE, users)
+                    register_user(new_email, new_password, salt)
                     st.success("✅ User registered successfully! Please log in.")
                 else:
                     st.error("❌ Email already exists.")
@@ -151,37 +191,33 @@ elif choice == "Register":
 
 elif choice == "Store Data":
     if st.session_state['logged_in']:
-        st.subheader("📂 Store Data Securely")
+        st.subheader("\U0001F4C2 Store Data Securely")
         user_data = st.text_area("Enter Data:")
         passkey = st.text_input("Enter Passkey:", type="password")
         if st.button("Encrypt & Save"):
             if user_data and passkey:
-                data_id = f"data_{len(stored_data.get(st.session_state['user_email'], {}))}"
-                user_salt = users[st.session_state['user_email']]["salt"]
-                hashed_passkey = hash_passkey(passkey, user_salt)
-                encrypted_text = encrypt_data(user_data, passkey, user_salt)
-                if st.session_state['user_email'] not in stored_data:
-                    stored_data[st.session_state['user_email']] = {}
-                stored_data[st.session_state['user_email']][data_id] = {
-                    "encrypted_text": encrypted_text,
-                    "passkey": hashed_passkey
-                }
-                save_data(DATA_FILE, stored_data)
+                user = get_user(st.session_state['user_email'])
+                salt = user['salt']
+                data_id = f"data_{int(time.time())}"
+                hashed_passkey = hash_passkey(passkey, salt)
+                encrypted = encrypt_data(user_data, passkey, salt)
+                store_data(st.session_state['user_email'], data_id, encrypted, hashed_passkey)
                 st.success("✅ Data stored securely!")
             else:
                 st.error("⚠️ Both fields are required!")
     else:
-        st.warning("🔒 Please log in to store data.")
+        st.warning("\U0001F512 Please log in to store data.")
 
 elif choice == "Retrieve Data":
     if st.session_state['logged_in']:
-        st.subheader("🔍 Retrieve Your Data")
+        st.subheader("\U0001F50D Retrieve Your Data")
         encrypted_text = st.text_area("Enter Encrypted Data:")
         passkey = st.text_input("Enter Passkey:", type="password")
         if st.button("Decrypt"):
             if encrypted_text and passkey:
-                user_salt = users[st.session_state['user_email']]["salt"]
-                decrypted_text = decrypt_data(encrypted_text, passkey, user_salt)
+                user = get_user(st.session_state['user_email'])
+                salt = user['salt']
+                decrypted_text = decrypt_data(encrypted_text, passkey, salt)
                 if decrypted_text:
                     st.success(f"✅ Decrypted Data: {decrypted_text}")
                 else:
@@ -189,4 +225,4 @@ elif choice == "Retrieve Data":
             else:
                 st.error("⚠️ Both fields are required!")
     else:
-        st.warning("🔒 Please log in to retrieve data.")
+        st.warning("\U0001F512 Please log in to retrieve data.")
